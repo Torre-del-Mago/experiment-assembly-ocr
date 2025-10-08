@@ -1,0 +1,23 @@
+# Gradio
+gradio>=4.0.0
+
+# PyTorch
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Transformers i modele
+transformers>=4.30.0
+sentencepiece>=0.1.99
+accelerate>=0.20.0
+
+# TrOCR i CRAFT
+Pillow>=9.0.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+gdown
+
+# Qwen
+qwen-vl-utils
+
+# Inne
+tqdm>=4.65.0
