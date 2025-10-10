@@ -16,7 +16,7 @@ from transformers import (
     AutoProcessor
 )
 
-# Dodaj ścieżki do modułów projektu
+# Add paths to project modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'myTrOCR-CRAFT/Eval'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'myTrOCR-CRAFT/Eval/craft_text_detector'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'myTrOCR-CRAFT/Eval/craft_hw_ocr'))
@@ -36,13 +36,13 @@ except ImportError:
     print("Warning: qwen_vl_utils not available. Qwen functionality will be limited.")
     QWEN_AVAILABLE = False
 
-# Ścieżki do modeli
+# Model paths
 CRAFT_MODEL_PATH = "models/CRAFT/CRAFT_clr_amp_25.pth"
 DONUT_MODEL_PATH = "models/Donut"
 TROCR_MODEL_NAME = "microsoft/trocr-base-handwritten"
 QWEN_MODEL_NAME = "Qwen/Qwen2.5-VL-7B-Instruct"
 
-# Globalne modele (cache)
+# Global models (cache)
 models_cache = {
     "craft": None,
     "trocr": None,
@@ -54,16 +54,16 @@ models_cache = {
 }
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Używane urządzenie: {device}")
+print(f"Using device: {device}")
 
 
 def load_trocr_craft_models():
-    """Ładuje modele TrOCR i CRAFT"""
+    """Loads TrOCR and CRAFT models"""
     if not CRAFT_AVAILABLE:
         return None, None, None
     
     if models_cache["trocr"] is None:
-        print("Ładowanie modeli TrOCR + CRAFT...")
+        print("Loading TrOCR + CRAFT models...")
         models_cache["trocr_processor"] = TrOCRProcessor.from_pretrained(TROCR_MODEL_NAME)
         models_cache["trocr"] = VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL_NAME)
         models_cache["trocr"].to(device)
@@ -79,7 +79,7 @@ def load_trocr_craft_models():
             cuda=torch.cuda.is_available(),
             weight_path_craft_net=CRAFT_MODEL_PATH
         )
-        print("Modele TrOCR + CRAFT załadowane!")
+        print("TrOCR + CRAFT models loaded!")
     
     return models_cache["craft"], models_cache["trocr"], models_cache["trocr_processor"]
 
@@ -103,51 +103,51 @@ def _move_model_to_cpu(key):
 
 
 def load_donut_model():
-    """Ładuje model Donut"""
+    """Loads Donut model"""
     if models_cache["donut"] is None:
-        print("Ładowanie modelu Donut...")
+        print("Loading Donut model...")
         models_cache["donut_processor"] = DonutProcessor.from_pretrained(DONUT_MODEL_PATH)
         models_cache["donut"] = VisionEncoderDecoderModel.from_pretrained(DONUT_MODEL_PATH)
         models_cache["donut"].to(device)
         models_cache["donut"].eval()
-        print("Model Donut załadowany!")
+        print("Donut model loaded!")
     
     return models_cache["donut"], models_cache["donut_processor"]
 
 
 def load_qwen_model():
-    """Ładuje model Qwen"""
+    """Loads Qwen model"""
     if models_cache["qwen"] is None:
-        print("Ładowanie modelu Qwen (może to chwilę potrwać)...")
+        print("Loading Qwen model (this may take a while)...")
         models_cache["qwen"] = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             QWEN_MODEL_NAME,
             torch_dtype=torch.float16,
             device_map="auto"
         )
         models_cache["qwen_processor"] = AutoProcessor.from_pretrained(QWEN_MODEL_NAME)
-        print("Model Qwen załadowany!")
+        print("Qwen model loaded!")
     
     return models_cache["qwen"], models_cache["qwen_processor"]
 
 
 def process_with_trocr_craft(image):
-    """Przetwarzanie obrazu z użyciem TrOCR + CRAFT"""
+    """Process image using TrOCR + CRAFT"""
     try:
         if not CRAFT_AVAILABLE:
-            return "Błąd: Moduły CRAFT nie są dostępne. Zainstaluj wymagane zależności.", None
+            return "Error: CRAFT modules are not available. Install required dependencies.", None
         
         craft, trocr_model, trocr_processor = load_trocr_craft_models()
         
-        # Konwersja obrazu PIL do numpy array
+        # Convert PIL image to numpy array
         if isinstance(image, Image.Image):
             img_array = np.array(image)
         else:
             img_array = image
         
-        # Detekcja tekstu
+        # Text detection
         img, detection_results = OCR.detection(img_array, craft)
         
-        # Rozpoznawanie tekstu
+        # Text recognition
         bboxes, recognized_texts = OCR.recoginition(
             img, 
             detection_results, 
@@ -156,24 +156,24 @@ def process_with_trocr_craft(image):
             device
         )
         
-        # Przygotowanie wyniku
+        # Prepare result
         result_text = "\n".join(recognized_texts)
         
-        # Wizualizacja bbox-ów
+        # Visualize bounding boxes
         img_with_boxes = OCR.visualize(img.copy(), detection_results)
         
         return result_text, img_with_boxes
     
     except Exception as e:
-        return f"Błąd podczas przetwarzania: {str(e)}", None
+        return f"Error during processing: {str(e)}", None
 
 
 def process_with_donut(image):
-    """Przetwarzanie obrazu z użyciem Donut"""
+    """Process image using Donut"""
     try:
         model, processor = load_donut_model()
         
-        # Konwersja do PIL Image jeśli potrzeba
+        # Convert to PIL Image if needed
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
         
@@ -213,11 +213,11 @@ def process_with_donut(image):
         return result_text, image
     
     except Exception as e:
-        return f"Błąd podczas przetwarzania: {str(e)}", None
+        return f"Error during processing: {str(e)}", None
 
 
 def process_with_qwen(image):
-    """Przetwarzanie obrazu z użyciem Qwen (zero-shot)"""
+    """Process image using Qwen (zero-shot)"""
 
     def result_to_list(result):
         """
@@ -238,10 +238,10 @@ def process_with_qwen(image):
     
     try:
         if not QWEN_AVAILABLE:
-            return "Błąd: qwen_vl_utils nie jest dostępny. Zainstaluj qwen-vl-utils.", None
+            return "Error: qwen_vl_utils is not available. Install qwen-vl-utils.", None
         
         model, processor = load_qwen_model()
-        # Konwersja do PIL Image i zapis tymczasowy (bezpieczny, przenośny)
+        # Convert to PIL Image and save temporarily (safe, portable)
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
 
@@ -251,7 +251,7 @@ def process_with_qwen(image):
         image.save(temp_image_path)
         file_uri = Path(temp_image_path).as_uri()
 
-        # Przygotowanie promptu
+        # Prepare prompt
         messages = [
             {"role": "user", "content": [
                 {"type": "image", "image": file_uri},
@@ -312,15 +312,15 @@ def process_with_qwen(image):
                     pass
     
     except Exception as e:
-        return f"Błąd podczas przetwarzania: {str(e)}", None
+        return f"Error during processing: {str(e)}", None
 
 
 def process_image(image, model_choice):
-    """Główna funkcja przetwarzania obrazu"""
+    """Main image processing function"""
     if image is None:
-        return "Proszę wczytać obraz.", None
+        return "Please load an image.", None
 
-    # Przed załadowaniem nowego modelu - zwolnij GPU z innych modeli
+    # Before loading a new model - free GPU from other models
     try:
         # Move other models to CPU / delete them to free GPU
         if model_choice == "TrOCR + CRAFT":
@@ -358,49 +358,49 @@ def process_image(image, model_choice):
     elif model_choice == "Qwen (Zero-shot)":
         return process_with_qwen(image)
     else:
-        return "Nieznany model.", None
+        return "Unknown model.", None
 
 
-# Interfejs Gradio
-with gr.Blocks(title="Assembly OCR - Rozpoznawanie kodu Assembly") as demo:
-    gr.Markdown("# 🔍 Assembly OCR - Rozpoznawanie kodu Assembly")
-    gr.Markdown("Wybierz model OCR i wczytaj obraz z kodem assembly do rozpoznania.")
+# Gradio Interface
+with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
+    gr.Markdown("# 🔍 Assembly OCR - Assembly Code Recognition")
+    gr.Markdown("Select an OCR model and load an image with assembly code to recognize.")
     
     with gr.Row():
         with gr.Column():
             image_input = gr.Image(
-                label="Obraz wejściowy", 
+                label="Input Image", 
                 type="pil",
                 height=400
             )
             model_choice = gr.Radio(
                 choices=["TrOCR + CRAFT", "Donut", "Qwen (Zero-shot)"],
-                label="Wybierz model",
+                label="Select Model",
                 value="TrOCR + CRAFT"
             )
-            process_btn = gr.Button("🚀 Rozpoznaj tekst", variant="primary")
+            process_btn = gr.Button("🚀 Recognize Text", variant="primary")
         
         with gr.Column():
             text_output = gr.Textbox(
-                label="Rozpoznany tekst",
+                label="Recognized Text",
                 lines=20,
-                placeholder="Tutaj pojawi się rozpoznany kod assembly..."
+                placeholder="The recognized assembly code will appear here..."
             )
             image_output = gr.Image(
-                label="Obraz z oznaczeniami",
+                label="Image with Annotations",
                 height=400
             )
     
     gr.Markdown("""
-    ### ℹ️ Informacje o modelach:
-    - **TrOCR + CRAFT**: Detekcja tekstu za pomocą CRAFT + rozpoznawanie TrOCR
-    - **Donut**: End-to-end model transformerowy bez OCR
-    - **Qwen (Zero-shot)**: Multimodalny model językowy w trybie zero-shot
+    ### ℹ️ Model Information:
+    - **TrOCR + CRAFT**: Text detection using CRAFT + TrOCR recognition
+    - **Donut**: End-to-end transformer model without OCR
+    - **Qwen (Zero-shot)**: Multimodal language model in zero-shot mode
     
-    ### 📝 Uwagi:
-    - Pierwsze użycie modelu może trwać dłużej (ładowanie modelu)
-    - Qwen wymaga najwięcej pamięci GPU
-    - Dla najlepszych wyników używaj obrazów o dobrej jakości
+    ### 📝 Notes:
+    - First use of a model may take longer (model loading)
+    - Qwen requires the most GPU memory
+    - For best results, use high-quality images
     """)
     
     process_btn.click(
@@ -409,9 +409,9 @@ with gr.Blocks(title="Assembly OCR - Rozpoznawanie kodu Assembly") as demo:
         outputs=[text_output, image_output]
     )
     
-    # Przykłady
-    gr.Markdown("### 📸 Przykłady")
-    gr.Markdown("Możesz użyć własnych obrazów lub przetestować na przykładowych plikach z datasetu.")
+    # Examples
+    gr.Markdown("### 📸 Examples")
+    gr.Markdown("You can use your own images or test with sample files from the dataset.")
 
 if __name__ == "__main__":
     demo.launch(share=False, server_name="0.0.0.0", server_port=7860)
