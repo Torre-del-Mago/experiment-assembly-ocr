@@ -347,79 +347,120 @@ def parse_ground_truth(ground_truth_text):
     lines = [line.strip() for line in ground_truth_text.split('\n') if line.strip()]
     return lines if lines else None
 
-
-def process_image(image, model_choice, calculate_metrics=False, ground_truth_text=None):
-    """Main image processing function"""
-    if image is None:
-        return "Please load an image.", None, ""
-
-    # Before loading a new model - free GPU from other models
-    try:
-        # Move other models to CPU / delete them to free GPU
-        if model_choice == "TrOCR + CRAFT":
-            _move_model_to_cpu('donut')
-            _move_model_to_cpu('donut_processor')
-            _move_model_to_cpu('qwen')
-            _move_model_to_cpu('qwen_processor')
-        elif model_choice == "Donut":
-            _move_model_to_cpu('trocr')
-            _move_model_to_cpu('trocr_processor')
-            _move_model_to_cpu('craft')
-            _move_model_to_cpu('qwen')
-            _move_model_to_cpu('qwen_processor')
-        elif model_choice == "Qwen (Zero-shot)":
-            _move_model_to_cpu('trocr')
-            _move_model_to_cpu('trocr_processor')
-            _move_model_to_cpu('craft')
-            _move_model_to_cpu('donut')
-            _move_model_to_cpu('donut_processor')
-    except Exception:
-        pass
-
-    # Force garbage collection and empty CUDA cache to free GPU memory
-    try:
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
-
-    # Parse ground truth first (if metrics are enabled)
-    ground_truth_list = None
-    
-    if calculate_metrics and ground_truth_text:
-        ground_truth_list = parse_ground_truth(ground_truth_text)
-
-    # Process image with selected model
-    if model_choice == "TrOCR + CRAFT":
+def process_single_model(image, model_name, ground_truth_list=None):
+    """Process image with a single model and return results with metrics"""
+    if model_name == "TrOCR + CRAFT":
         result_text, result_image = process_with_trocr_craft(image)
-    elif model_choice == "Donut":
+    elif model_name == "Donut":
         result_text, result_image = process_with_donut(image)
-    elif model_choice == "Qwen (Zero-shot)":
+    elif model_name == "Qwen (Zero-shot)":
         result_text, result_image = process_with_qwen(image)
     else:
         return "Unknown model.", None, ""
-
-    # Calculate metrics (only if ground truth was successfully parsed)
+    
+    # Calculate metrics if ground truth provided
     metrics_text = ""
-    if calculate_metrics and ground_truth_list is not None:
-        # Convert result_text to list (split by lines)
+    if ground_truth_list is not None:
         result_lines = [line for line in result_text.split('\n') if line.strip()]
-        
         try:
             metrics = calculate_error_rates(ground_truth_list, result_lines)
             metrics_text = (
-                f"📊 Metrics:\n"
+                f"📊 {model_name} Metrics:\n"
                 f"CER: {metrics['CER']['rate']:.3f} (S:{metrics['CER']['S']}, I:{metrics['CER']['I']}, D:{metrics['CER']['D']})\n"
                 f"WER: {metrics['WER']['rate']:.3f} (S:{metrics['WER']['S']}, I:{metrics['WER']['I']}, D:{metrics['WER']['D']})\n"
                 f"LER: {metrics['LER']['rate']:.3f} (S:{metrics['LER']['S']}, I:{metrics['LER']['I']}, D:{metrics['LER']['D']})"
             )
         except Exception as e:
             metrics_text = f"Error calculating metrics: {str(e)}"
-    elif calculate_metrics and ground_truth_list is None:
-        metrics_text = "⚠️ Cannot calculate metrics - please provide valid ground truth"
-
+    
     return result_text, result_image, metrics_text
+
+
+def process_image(image, model_choice, calculate_metrics=False, ground_truth_text=None):
+    """Main image processing function"""
+    if image is None:
+        return "Please load an image.", None, "",
+        "Please load an image.", None, "",
+        "Please load an image.", None, "",
+        "Please load an image.", None, ""
+
+    # Parse ground truth first (if metrics are enabled)
+    ground_truth_list = None
+    if calculate_metrics and ground_truth_text:
+        ground_truth_list = parse_ground_truth(ground_truth_text)
+
+    # Handle "All" option
+    if model_choice == "All":
+        results = {}
+        
+        # Process with each model
+        for model_name in ["TrOCR + CRAFT", "Donut", "Qwen (Zero-shot)"]:
+            # Clear GPU before each model
+            try:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            
+            result_text, result_image, metrics_text = process_single_model(
+                image, model_name, ground_truth_list if calculate_metrics else None
+            )
+            results[model_name] = (result_text, result_image, metrics_text)
+        
+        # Return results for all three models
+        trocr_text, trocr_img, trocr_metrics = results["TrOCR + CRAFT"]
+        donut_text, donut_img, donut_metrics = results["Donut"]
+        qwen_text, qwen_img, qwen_metrics = results["Qwen (Zero-shot)"]
+        
+        return (
+            "", None, "",  # Single model outputs (empty for "All" mode)
+            trocr_text, trocr_img, trocr_metrics,
+            donut_text, donut_img, donut_metrics,
+            qwen_text, qwen_img, qwen_metrics
+        )
+    
+    else:
+        # Single model processing
+        # Before loading a new model - free GPU from other models
+        try:
+            if model_choice == "TrOCR + CRAFT":
+                _move_model_to_cpu('donut')
+                _move_model_to_cpu('donut_processor')
+                _move_model_to_cpu('qwen')
+                _move_model_to_cpu('qwen_processor')
+            elif model_choice == "Donut":
+                _move_model_to_cpu('trocr')
+                _move_model_to_cpu('trocr_processor')
+                _move_model_to_cpu('craft')
+                _move_model_to_cpu('qwen')
+                _move_model_to_cpu('qwen_processor')
+            elif model_choice == "Qwen (Zero-shot)":
+                _move_model_to_cpu('trocr')
+                _move_model_to_cpu('trocr_processor')
+                _move_model_to_cpu('craft')
+                _move_model_to_cpu('donut')
+                _move_model_to_cpu('donut_processor')
+        except Exception:
+            pass
+
+        # Force garbage collection and empty CUDA cache
+        try:
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+        result_text, result_image, metrics_text = process_single_model(
+            image, model_choice, ground_truth_list if calculate_metrics else None
+        )
+        
+        if calculate_metrics and ground_truth_list is None:
+            metrics_text = "⚠️ Cannot calculate metrics - please provide valid ground truth"
+        
+        # Return single model results to single_output (fill all_output with empty values)
+        return result_text, result_image, metrics_text, "", None, "", "", None, "", "", None, ""
 
 # Gradio Interface
 with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
@@ -434,7 +475,7 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
                 height=400
             )
             model_choice = gr.Radio(
-                choices=["TrOCR + CRAFT", "Donut", "Qwen (Zero-shot)"],
+                choices=["TrOCR + CRAFT", "Donut", "Qwen (Zero-shot)", "All"],
                 label="Select Model",
                 value="TrOCR + CRAFT"
             )
@@ -450,7 +491,9 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
                 visible=False
             )
             process_btn = gr.Button("🚀 Recognize Text", variant="primary")
-        
+    
+    # Single model output (default view)
+    with gr.Row(visible=True) as single_output_row:
         with gr.Column():
             text_output = gr.Textbox(
                 label="Recognized Text",
@@ -468,14 +511,69 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
                 height=400
             )
     
+    # All models output (shown when "All" is selected)
+    with gr.Row(visible=False) as all_output_row:
+        with gr.Column():
+            gr.Markdown("### TrOCR + CRAFT")
+            text_output_trocr = gr.Textbox(
+                label="Recognized Text (TrOCR + CRAFT)",
+                lines=15,
+                placeholder="TrOCR + CRAFT results..."
+            )
+            metrics_output_trocr = gr.Textbox(
+                label="Metrics",
+                lines=4,
+                visible=False
+            )
+            image_output_trocr = gr.Image(
+                label="Image with Annotations",
+                height=300
+            )
+        
+        with gr.Column():
+            gr.Markdown("### Donut")
+            text_output_donut = gr.Textbox(
+                label="Recognized Text (Donut)",
+                lines=15,
+                placeholder="Donut results..."
+            )
+            metrics_output_donut = gr.Textbox(
+                label="Metrics",
+                lines=4,
+                visible=False
+            )
+            image_output_donut = gr.Image(
+                label="Processed Image",
+                height=300
+            )
+        
+        with gr.Column():
+            gr.Markdown("### Qwen (Zero-shot)")
+            text_output_qwen = gr.Textbox(
+                label="Recognized Text (Qwen)",
+                lines=15,
+                placeholder="Qwen results..."
+            )
+            metrics_output_qwen = gr.Textbox(
+                label="Metrics",
+                lines=4,
+                visible=False
+            )
+            image_output_qwen = gr.Image(
+                label="Processed Image",
+                height=300
+            )
+    
     gr.Markdown("""
     ### ℹ️ Model Information:
     - **TrOCR + CRAFT**: Text detection using CRAFT + TrOCR recognition
     - **Donut**: End-to-end transformer model without OCR
     - **Qwen (Zero-shot)**: Multimodal language model in zero-shot mode
-    
+    - **All**: Run all three models and compare results side by side
+
     ### 📝 Notes:
     - First use of a model may take longer (model loading)
+    - "All" option will take longer as it runs all models sequentially
     - Qwen requires the most GPU memory
     - For best results, use high-quality images
     
@@ -485,22 +583,52 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
     2. **Plain text**: One line per line (newline-separated)
     """)
 
-    def toggle_metrics_fields(show_metrics):
+    def toggle_metrics_fields(show_metrics, model_choice):
+        """Toggle visibility of metrics fields based on checkbox and model choice"""
+        is_all = model_choice == "All"
         return {
             ground_truth_input: gr.update(visible=show_metrics),
-            metrics_output: gr.update(visible=show_metrics)
+            metrics_output: gr.update(visible=show_metrics and not is_all),
+            metrics_output_trocr: gr.update(visible=show_metrics and is_all),
+            metrics_output_donut: gr.update(visible=show_metrics and is_all),
+            metrics_output_qwen: gr.update(visible=show_metrics and is_all)
+        }
+    
+    def toggle_output_view(model_choice):
+        """Toggle between single model output and all models output"""
+        is_all = model_choice == "All"
+        return {
+            single_output_row: gr.update(visible=not is_all),
+            all_output_row: gr.update(visible=is_all)
         }
     
     metrics_checkbox.change(
         fn=toggle_metrics_fields,
-        inputs=[metrics_checkbox],
-        outputs=[ground_truth_input, metrics_output]
+        inputs=[metrics_checkbox, model_choice],
+        outputs=[ground_truth_input, metrics_output, metrics_output_trocr, metrics_output_donut, metrics_output_qwen]
+    )
+    
+    model_choice.change(
+        fn=toggle_output_view,
+        inputs=[model_choice],
+        outputs=[single_output_row, all_output_row]
+    )
+    
+    model_choice.change(
+        fn=toggle_metrics_fields,
+        inputs=[metrics_checkbox, model_choice],
+        outputs=[ground_truth_input, metrics_output, metrics_output_trocr, metrics_output_donut, metrics_output_qwen]
     )
     
     process_btn.click(
         fn=process_image,
         inputs=[image_input, model_choice, metrics_checkbox, ground_truth_input],
-        outputs=[text_output, image_output, metrics_output]
+        outputs=[
+            text_output, image_output, metrics_output,  # Single model outputs
+            text_output_trocr, image_output_trocr, metrics_output_trocr,  # All mode - TrOCR
+            text_output_donut, image_output_donut, metrics_output_donut,  # All mode - Donut
+            text_output_qwen, image_output_qwen, metrics_output_qwen  # All mode - Qwen
+        ]
     )
     
     # Examples
