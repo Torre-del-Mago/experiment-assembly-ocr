@@ -15,6 +15,8 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor
 )
+from metrics import calculate_error_rates
+import json
 
 # Add paths to project modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'myTrOCR-CRAFT/Eval'))
@@ -40,6 +42,7 @@ except ImportError:
 CRAFT_MODEL_PATH = "models/CRAFT/CRAFT_clr_amp_25.pth"
 DONUT_MODEL_PATH = "models/Donut"
 TROCR_MODEL_NAME = "microsoft/trocr-base-handwritten"
+# TROCR_MODEL_NAME = "models/TrOCR"
 QWEN_MODEL_NAME = "Qwen/Qwen2.5-VL-7B-Instruct"
 
 # Global models (cache)
@@ -314,11 +317,41 @@ def process_with_qwen(image):
     except Exception as e:
         return f"Error during processing: {str(e)}", None
 
+def parse_ground_truth(ground_truth_text):
+    """
+    Parses ground truth from text input.
+    Accepts:
+    1. JSON array format: ["line1", "line2", ...]
+    2. Plain text with lines separated by newlines
+    
+    Returns list of strings (lines)
+    """
+    if not ground_truth_text or not ground_truth_text.strip():
+        return None
+    
+    ground_truth_text = ground_truth_text.strip()
+    
+    # Try to parse as JSON first
+    try:
+        data = json.loads(ground_truth_text)
+        if isinstance(data, list):
+            # Filter out empty strings
+            return [str(line).strip() for line in data if str(line).strip()]
+        elif isinstance(data, str):
+            # If it's a single string, split by lines
+            return [line.strip() for line in data.split('\n') if line.strip()]
+    except json.JSONDecodeError:
+        pass
+    
+    # If not JSON, treat as plain text with newlines
+    lines = [line.strip() for line in ground_truth_text.split('\n') if line.strip()]
+    return lines if lines else None
 
-def process_image(image, model_choice):
+
+def process_image(image, model_choice, calculate_metrics=False, ground_truth_text=None):
     """Main image processing function"""
     if image is None:
-        return "Please load an image.", None
+        return "Please load an image.", None, ""
 
     # Before loading a new model - free GPU from other models
     try:
@@ -350,16 +383,43 @@ def process_image(image, model_choice):
             torch.cuda.empty_cache()
     except Exception:
         pass
-    
-    if model_choice == "TrOCR + CRAFT":
-        return process_with_trocr_craft(image)
-    elif model_choice == "Donut":
-        return process_with_donut(image)
-    elif model_choice == "Qwen (Zero-shot)":
-        return process_with_qwen(image)
-    else:
-        return "Unknown model.", None
 
+    # Parse ground truth first (if metrics are enabled)
+    ground_truth_list = None
+    
+    if calculate_metrics and ground_truth_text:
+        ground_truth_list = parse_ground_truth(ground_truth_text)
+
+    # Process image with selected model
+    if model_choice == "TrOCR + CRAFT":
+        result_text, result_image = process_with_trocr_craft(image)
+    elif model_choice == "Donut":
+        result_text, result_image = process_with_donut(image)
+    elif model_choice == "Qwen (Zero-shot)":
+        result_text, result_image = process_with_qwen(image)
+    else:
+        return "Unknown model.", None, ""
+
+    # Calculate metrics (only if ground truth was successfully parsed)
+    metrics_text = ""
+    if calculate_metrics and ground_truth_list is not None:
+        # Convert result_text to list (split by lines)
+        result_lines = [line for line in result_text.split('\n') if line.strip()]
+        
+        try:
+            metrics = calculate_error_rates(ground_truth_list, result_lines)
+            metrics_text = (
+                f"📊 Metrics:\n"
+                f"CER: {metrics['CER']['rate']:.3f} (S:{metrics['CER']['S']}, I:{metrics['CER']['I']}, D:{metrics['CER']['D']})\n"
+                f"WER: {metrics['WER']['rate']:.3f} (S:{metrics['WER']['S']}, I:{metrics['WER']['I']}, D:{metrics['WER']['D']})\n"
+                f"LER: {metrics['LER']['rate']:.3f} (S:{metrics['LER']['S']}, I:{metrics['LER']['I']}, D:{metrics['LER']['D']})"
+            )
+        except Exception as e:
+            metrics_text = f"Error calculating metrics: {str(e)}"
+    elif calculate_metrics and ground_truth_list is None:
+        metrics_text = "⚠️ Cannot calculate metrics - please provide valid ground truth"
+
+    return result_text, result_image, metrics_text
 
 # Gradio Interface
 with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
@@ -378,6 +438,17 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
                 label="Select Model",
                 value="TrOCR + CRAFT"
             )
+            metrics_checkbox = gr.Checkbox(
+                label="📊 Calculate metrics (Ground Truth required)",
+                value=False
+            )
+            # Text input for ground truth
+            ground_truth_input = gr.Textbox(
+                label="Ground Truth",
+                lines=10,
+                placeholder='Paste ground truth here. Supports:\n1. JSON array: ["line1", "line2", ...]\n2. Plain text (one line per line)',
+                visible=False
+            )
             process_btn = gr.Button("🚀 Recognize Text", variant="primary")
         
         with gr.Column():
@@ -385,6 +456,12 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
                 label="Recognized Text",
                 lines=20,
                 placeholder="The recognized assembly code will appear here..."
+            )
+            metrics_output = gr.Textbox(
+                label="Metrics",
+                lines=5,
+                placeholder="Metrics will appear here...",
+                visible=False
             )
             image_output = gr.Image(
                 label="Image with Annotations",
@@ -401,12 +478,29 @@ with gr.Blocks(title="Assembly OCR - Assembly Code Recognition") as demo:
     - First use of a model may take longer (model loading)
     - Qwen requires the most GPU memory
     - For best results, use high-quality images
+    
+    ### 📋 Ground Truth Format:
+    You can paste ground truth in two formats:
+    1. **JSON array**: `["line1", "line2", "line3"]`
+    2. **Plain text**: One line per line (newline-separated)
     """)
+
+    def toggle_metrics_fields(show_metrics):
+        return {
+            ground_truth_input: gr.update(visible=show_metrics),
+            metrics_output: gr.update(visible=show_metrics)
+        }
+    
+    metrics_checkbox.change(
+        fn=toggle_metrics_fields,
+        inputs=[metrics_checkbox],
+        outputs=[ground_truth_input, metrics_output]
+    )
     
     process_btn.click(
         fn=process_image,
-        inputs=[image_input, model_choice],
-        outputs=[text_output, image_output]
+        inputs=[image_input, model_choice, metrics_checkbox, ground_truth_input],
+        outputs=[text_output, image_output, metrics_output]
     )
     
     # Examples
